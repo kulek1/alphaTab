@@ -6,7 +6,8 @@ import {
     BracketExtendMode,
     TrackNameMode,
     TrackNameOrientation,
-    TrackNamePolicy
+    TrackNamePolicy,
+    TuningDisplayMode
 } from '@coderline/alphatab/model/RenderStylesheet';
 import { type Track, TrackSubElement } from '@coderline/alphatab/model/Track';
 import { NotationElement } from '@coderline/alphatab/NotationSettings';
@@ -15,6 +16,8 @@ import type { RenderingResources } from '@coderline/alphatab/RenderingResources'
 import type { BarRendererBase } from '@coderline/alphatab/rendering/BarRendererBase';
 import type { LineBarRenderer } from '@coderline/alphatab/rendering/LineBarRenderer';
 import type { ScoreLayout } from '@coderline/alphatab/rendering/layout/ScoreLayout';
+import { TabBarRenderer } from '@coderline/alphatab/rendering/TabBarRenderer';
+import { InlineTuningGlyph } from '@coderline/alphatab/rendering/glyphs/InlineTuningGlyph';
 import { BarLayoutingInfo } from '@coderline/alphatab/rendering/staves/BarLayoutingInfo';
 import { MasterBarsRenderers } from '@coderline/alphatab/rendering/staves/MasterBarsRenderers';
 import type { RenderStaff } from '@coderline/alphatab/rendering/staves/RenderStaff';
@@ -158,6 +161,8 @@ export class StaffSystem {
 
     private _brackets: SystemBracket[] = [];
     private _staffToBracket = new Map<RenderStaff, SystemBracket>();
+    private _inlineTuningGlyphs: InlineTuningGlyph[] = [];
+    private _inlineTuningWidth = 0;
     private _contentHeight = 0;
 
     private _hasSystemSeparator = false;
@@ -657,6 +662,9 @@ export class StaffSystem {
                 }
             }
 
+            this._createInlineTuningGlyphs();
+            this.accoladeWidth += this._inlineTuningWidth;
+
             // NOTE: we have a chicken-egg problem when it comes to scaling braces which we try to mitigate here:
             // - The brace scales with the height of the system
             // - The height of the system depends on the bars which can be fitted
@@ -694,6 +702,82 @@ export class StaffSystem {
                 b.finalizeBracket(settings.display.resources.engravingSettings);
             }
         }
+    }
+
+    private _createInlineTuningGlyphs(): void {
+        this._inlineTuningGlyphs = [];
+        this._inlineTuningWidth = 0;
+
+        const score = this.layout.renderer.score!;
+        if (
+            this.index !== 0 ||
+            !this.layout.renderer.settings.notation.isNotationElementVisible(NotationElement.GuitarTuning) ||
+            !score.stylesheet.globalDisplayTuning ||
+            score.stylesheet.tuningDisplayMode !== TuningDisplayMode.Staff
+        ) {
+            return;
+        }
+
+        for (const staff of this.allStaves) {
+            if (!this._shouldCreateInlineTuningGlyph(staff)) {
+                continue;
+            }
+
+            const renderer = staff.barRenderers[0];
+            if (!(renderer instanceof TabBarRenderer)) {
+                continue;
+            }
+
+            const glyph = new InlineTuningGlyph(staff, renderer);
+            glyph.doLayout();
+            this._inlineTuningGlyphs.push(glyph);
+            this._inlineTuningWidth = Math.max(this._inlineTuningWidth, glyph.width);
+        }
+    }
+
+    private _shouldCreateInlineTuningGlyph(staff: RenderStaff): boolean {
+        const score = this.layout.renderer.score!;
+        if (
+            !staff.isVisible ||
+            staff.staffId !== TabBarRenderer.StaffId
+        ) {
+            return false;
+        }
+
+        const modelStaff = staff.modelStaff;
+        if (
+            modelStaff.isPercussion ||
+            !modelStaff.isStringed ||
+            !modelStaff.showTablature ||
+            modelStaff.stringTuning.tunings.length === 0
+        ) {
+            return false;
+        }
+
+        const perTrackDisplayTuning = score.stylesheet.perTrackDisplayTuning;
+        return (
+            !perTrackDisplayTuning ||
+            !perTrackDisplayTuning.has(modelStaff.track.index) ||
+            perTrackDisplayTuning.get(modelStaff.track.index) !== false
+        );
+    }
+
+    private _getInlineTuningWidthForTrackGroup(group: StaffTrackGroup): number {
+        return this._getInlineTuningWidth(glyph => glyph.staff.staffTrackGroup === group);
+    }
+
+    private _getInlineTuningWidthForBracket(bracket: SystemBracket): number {
+        return this._getInlineTuningWidth(glyph => bracket.includesStaff(glyph.staff));
+    }
+
+    private _getInlineTuningWidth(includeGlyph: (glyph: InlineTuningGlyph) => boolean): number {
+        let width = 0;
+        for (const glyph of this._inlineTuningGlyphs) {
+            if (includeGlyph(glyph)) {
+                width = Math.max(width, glyph.width);
+            }
+        }
+        return width;
     }
 
     private _getStaffTrackGroup(track: Track): StaffTrackGroup | null {
@@ -874,6 +958,7 @@ export class StaffSystem {
                                     g.staves[0].x -
                                     // left side of the bracket
                                     settings.display.accoladeBarPaddingRight -
+                                    this._getInlineTuningWidthForTrackGroup(g) -
                                     (g.bracket?.width ?? 0) -
                                     // padding between label and bracket
                                     settings.display.systemLabelPaddingRight;
@@ -908,6 +993,8 @@ export class StaffSystem {
                     canvas.textAlign = oldTextAlign;
                 }
             }
+
+            this._paintInlineTunings(cx, cy, canvas);
 
             const needsSystemBarLine = !this.layout.renderer.score!.stylesheet.extendBarLines;
             if (this.allStaves.length > 0 && needsSystemBarLine) {
@@ -944,6 +1031,12 @@ export class StaffSystem {
         }
     }
 
+    private _paintInlineTunings(cx: number, cy: number, canvas: ICanvas): void {
+        for (const glyph of this._inlineTuningGlyphs) {
+            glyph.paint(cx + glyph.staff.x, cy + glyph.staff.y, canvas);
+        }
+    }
+
     private _paintBrackets(cx: number, cy: number, canvas: ICanvas) {
         const settings = this.layout.renderer.settings;
 
@@ -951,7 +1044,8 @@ export class StaffSystem {
             if (bracket.canPaint) {
                 const barStartX: number = cx + bracket.firstVisibleStaffInBracket!.x;
                 const barSize: number = bracket.width;
-                const barOffset: number = settings.display.accoladeBarPaddingRight;
+                const barOffset: number =
+                    settings.display.accoladeBarPaddingRight + this._getInlineTuningWidthForBracket(bracket);
                 const firstStart: number = cy + bracket.firstVisibleStaffInBracket!.contentTop;
                 const lastEnd: number = cy + bracket.lastVisibleStaffInBracket!.contentBottom;
                 let accoladeStart: number = firstStart;
