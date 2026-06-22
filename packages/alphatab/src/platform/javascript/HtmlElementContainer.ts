@@ -24,9 +24,9 @@ type MouseEventListener = (arg: IMouseEventArgs) => void;
  * @internal
  */
 export class HtmlElementContainer implements IHtmlElementContainer {
-    private static readonly _touchLongPressDelay = 80;
-    private static readonly _touchMoveSlop = 8;
-    private static readonly _edgeScrollThreshold = 48;
+    private static readonly _touchLongPressDelay = 60;
+    private static readonly _touchMoveSlop = 12;
+    private static readonly _edgeScrollThreshold = 50;
     private static readonly _edgeScrollMaxStep = 32;
 
     private static _resizeObserver: Lazy<ResizeObserver> = new Lazy<ResizeObserver>(
