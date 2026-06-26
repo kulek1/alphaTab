@@ -19,6 +19,12 @@ interface TestPointerEventOptions {
     pageY?: number;
 }
 
+interface TestMouseEventOptions {
+    button?: number;
+    pageX?: number;
+    pageY?: number;
+}
+
 interface MutableTestEvent {
     type: string;
     defaultPrevented: boolean;
@@ -159,6 +165,20 @@ function createPointerEvent(options: TestPointerEventOptions = {}): PointerEvent
     return event as PointerEvent & MutableTestEvent;
 }
 
+function createMouseEvent(options: TestMouseEventOptions = {}): MouseEvent & MutableTestEvent {
+    const event = {
+        type: '',
+        button: options.button ?? 0,
+        pageX: options.pageX ?? 0,
+        pageY: options.pageY ?? 0,
+        defaultPrevented: false,
+        preventDefault() {
+            event.defaultPrevented = true;
+        }
+    };
+    return event as MouseEvent & MutableTestEvent;
+}
+
 function createTouchEvent(): TouchEvent & MutableTestEvent {
     const event = {
         type: '',
@@ -175,7 +195,7 @@ describe('HtmlElementContainer', () => {
         vi.useRealTimers();
     });
 
-    it('emits mouse pointer events immediately and preserves button state', () => {
+    it('emits desktop mouse events from native mouse listeners and preserves button state', () => {
         const { element, container } = createContainer();
         const calls: string[] = [];
         const downArgs: IMouseEventArgs[] = [];
@@ -186,34 +206,91 @@ describe('HtmlElementContainer', () => {
         container.mouseMove.on(() => calls.push('move'));
         container.mouseUp.on(() => calls.push('up'));
 
-        element.dispatch('pointerdown', createPointerEvent({ pointerType: 'mouse', button: 0 }));
-        element.dispatch('pointermove', createPointerEvent({ pointerType: 'mouse', button: 0 }));
-        element.dispatch('pointerup', createPointerEvent({ pointerType: 'mouse', button: 0 }));
-        element.dispatch('pointerdown', createPointerEvent({ pointerType: 'mouse', button: 2 }));
+        element.dispatch('mousedown', createMouseEvent({ button: 0 }));
+        element.dispatch('mousemove', createMouseEvent({ button: 0 }));
+        element.dispatch('mouseup', createMouseEvent({ button: 0 }));
+        element.dispatch('mousedown', createMouseEvent({ button: 2 }));
 
         expect(calls).toEqual(['down', 'move', 'up', 'down']);
         expect(downArgs[0].isLeftMouseButton).toBe(true);
         expect(downArgs[1].isLeftMouseButton).toBe(false);
         expect(element.listenerCount('pointerdown')).toBe(1);
-        expect(element.listenerCount('mousedown')).toBe(0);
+        expect(element.listenerCount('mousedown')).toBe(1);
     });
 
-    it('emits touch tap down and up on release with the original tap coordinates', () => {
+    it('ignores mouse pointer events so desktop mouse is not emitted twice', () => {
+        const { element, container } = createContainer();
+        const calls: string[] = [];
+        container.mouseDown.on(() => calls.push('down'));
+        container.mouseMove.on(() => calls.push('move'));
+        container.mouseUp.on(() => calls.push('up'));
+
+        element.dispatch('pointerdown', createPointerEvent({ pointerType: 'mouse' }));
+        element.dispatch('pointermove', createPointerEvent({ pointerType: 'mouse' }));
+        element.dispatch('pointerup', createPointerEvent({ pointerType: 'mouse' }));
+
+        expect(calls).toEqual([]);
+    });
+
+    it('forwards mouse preventDefault to the native MouseEvent', () => {
+        const { element, container } = createContainer();
+        container.mouseDown.on(e => e.preventDefault());
+
+        const mouseDown = createMouseEvent();
+        element.dispatch('mousedown', mouseDown);
+
+        expect(mouseDown.defaultPrevented).toBe(true);
+    });
+
+    it('emits touch tap down and up without preventing native tap events', () => {
         vi.useFakeTimers();
         const { element, container } = createContainer();
         const downArgs: IMouseEventArgs[] = [];
         const upArgs: IMouseEventArgs[] = [];
-        container.mouseDown.on(e => downArgs.push(e));
-        container.mouseUp.on(e => upArgs.push(e));
+        container.mouseDown.on(e => {
+            downArgs.push(e);
+            e.preventDefault();
+        });
+        container.mouseUp.on(e => {
+            upArgs.push(e);
+            e.preventDefault();
+        });
 
-        element.dispatch('pointerdown', createPointerEvent({ pointerType: 'touch', pageX: 45, pageY: 68 }));
-        element.dispatch('pointerup', createPointerEvent({ pointerType: 'touch', pageX: 46, pageY: 69 }));
+        const pointerDown = createPointerEvent({ pointerType: 'touch', pageX: 45, pageY: 68 });
+        const pointerUp = createPointerEvent({ pointerType: 'touch', pageX: 46, pageY: 69 });
+        element.dispatch('pointerdown', pointerDown);
+        element.dispatch('pointerup', pointerUp);
         vi.advanceTimersByTime(100);
 
         expect(downArgs).toHaveLength(1);
         expect(upArgs).toHaveLength(1);
         expect(downArgs[0].getX(container)).toBe(30);
         expect(downArgs[0].getY(container)).toBe(41);
+        expect(pointerDown.defaultPrevented).toBe(false);
+        expect(pointerUp.defaultPrevented).toBe(false);
+    });
+
+    it('suppresses touch compatibility mouse alphaTab events without blocking native listeners', () => {
+        vi.useFakeTimers();
+        const { element, container } = createContainer();
+        const calls: string[] = [];
+        const nativeMouseDown = vi.fn();
+        container.mouseDown.on(e => {
+            calls.push('down');
+            e.preventDefault();
+        });
+        container.mouseUp.on(() => calls.push('up'));
+        element.addEventListener('mousedown', nativeMouseDown);
+
+        element.dispatch('pointerdown', createPointerEvent({ pointerType: 'touch' }));
+        element.dispatch('pointerup', createPointerEvent({ pointerType: 'touch' }));
+        const compatibilityMouseDown = createMouseEvent();
+        element.dispatch('mousedown', compatibilityMouseDown);
+        element.dispatch('mouseup', createMouseEvent());
+
+        expect(calls).toEqual(['down', 'up']);
+        expect(nativeMouseDown).toHaveBeenCalledTimes(1);
+        expect(compatibilityMouseDown.defaultPrevented).toBe(false);
     });
 
     it('keeps long press alive through small touch jitter before activation', () => {
@@ -242,9 +319,9 @@ describe('HtmlElementContainer', () => {
 
         element.dispatch('pointerdown', createPointerEvent({ pointerType: 'touch', pageX: 50, pageY: 50 }));
         vi.advanceTimersByTime(50);
-        element.dispatch('pointermove', createPointerEvent({ pointerType: 'touch', pageX: 50, pageY: 60 }));
+        element.dispatch('pointermove', createPointerEvent({ pointerType: 'touch', pageX: 50, pageY: 70 }));
         vi.advanceTimersByTime(100);
-        element.dispatch('pointerup', createPointerEvent({ pointerType: 'touch', pageX: 50, pageY: 60 }));
+        element.dispatch('pointerup', createPointerEvent({ pointerType: 'touch', pageX: 50, pageY: 70 }));
 
         expect(calls).toEqual([]);
     });
@@ -377,6 +454,9 @@ describe('HtmlElementContainer', () => {
         expect(element.listenerCount('pointermove')).toBe(0);
         expect(element.listenerCount('pointerup')).toBe(0);
         expect(element.listenerCount('pointercancel')).toBe(0);
+        expect(element.listenerCount('mousedown')).toBe(0);
+        expect(element.listenerCount('mousemove')).toBe(0);
+        expect(element.listenerCount('mouseup')).toBe(0);
         expect(element.listenerCount('touchmove')).toBe(0);
     });
 
@@ -407,8 +487,28 @@ describe('HtmlElementContainer', () => {
         });
         container.mouseDown.on(() => calls.push('second'));
 
-        element.dispatch('pointerdown', createPointerEvent({ pointerType: 'mouse' }));
+        element.dispatch('mousedown', createMouseEvent());
 
         expect(calls).toEqual(['first', 'second']);
+    });
+
+    it('treats pen as mouse-like compatibility input instead of touch long-press input', () => {
+        vi.useFakeTimers();
+        const { element, container } = createContainer();
+        const calls: string[] = [];
+        container.mouseDown.on(() => calls.push('down'));
+        container.mouseMove.on(() => calls.push('move'));
+        container.mouseUp.on(() => calls.push('up'));
+
+        element.dispatch('pointerdown', createPointerEvent({ pointerType: 'pen' }));
+        vi.advanceTimersByTime(100);
+        element.dispatch('pointermove', createPointerEvent({ pointerType: 'pen' }));
+        element.dispatch('pointerup', createPointerEvent({ pointerType: 'pen' }));
+        element.dispatch('mousedown', createMouseEvent());
+        element.dispatch('mousemove', createMouseEvent());
+        element.dispatch('mouseup', createMouseEvent());
+
+        expect(calls).toEqual(['down', 'move', 'up']);
+        expect(element.setPointerCapture).not.toHaveBeenCalled();
     });
 });

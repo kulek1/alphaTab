@@ -25,9 +25,10 @@ type MouseEventListener = (arg: IMouseEventArgs) => void;
  */
 export class HtmlElementContainer implements IHtmlElementContainer {
     private static readonly _touchLongPressDelay = 60;
-    private static readonly _touchMoveSlop = 12;
+    private static readonly _touchMoveSlop = 80;
     private static readonly _edgeScrollThreshold = 50;
     private static readonly _edgeScrollMaxStep = 32;
+    private static readonly _compatibilityMouseSuppressionDelay = 800;
 
     private static _resizeObserver: Lazy<ResizeObserver> = new Lazy<ResizeObserver>(
         () =>
@@ -52,6 +53,8 @@ export class HtmlElementContainer implements IHtmlElementContainer {
     private _touchSelectionActive = false;
     private _touchGestureCancelled = false;
     private _touchPointerCaptured = false;
+    private _suppressCompatibilityMouseEvents = false;
+    private _compatibilityMouseSuppressionTimer: ReturnType<typeof setTimeout> | null = null;
     private _touchStartPageX = 0;
     private _touchStartPageY = 0;
     private readonly _touchMoveOptions: AddEventListenerOptions = {
@@ -172,15 +175,14 @@ export class HtmlElementContainer implements IHtmlElementContainer {
             return;
         }
 
+        this.element.addEventListener('mousedown', this._onMouseDown, true);
+        this.element.addEventListener('mousemove', this._onMouseMove, true);
+        this.element.addEventListener('mouseup', this._onMouseUp, true);
         if (this._supportsPointerEvents) {
             this.element.addEventListener('pointerdown', this._onPointerDown, true);
             this.element.addEventListener('pointermove', this._onPointerMove, true);
             this.element.addEventListener('pointerup', this._onPointerUp, true);
             this.element.addEventListener('pointercancel', this._onPointerCancel, true);
-        } else {
-            this.element.addEventListener('mousedown', this._onMouseDown, true);
-            this.element.addEventListener('mousemove', this._onMouseMove, true);
-            this.element.addEventListener('mouseup', this._onMouseUp, true);
         }
         this._nativeMouseListenersActive = true;
     }
@@ -194,15 +196,15 @@ export class HtmlElementContainer implements IHtmlElementContainer {
         }
 
         this._resetTouchGesture(true);
+        this._clearCompatibilityMouseSuppression();
+        this.element.removeEventListener('mousedown', this._onMouseDown, true);
+        this.element.removeEventListener('mousemove', this._onMouseMove, true);
+        this.element.removeEventListener('mouseup', this._onMouseUp, true);
         if (this._supportsPointerEvents) {
             this.element.removeEventListener('pointerdown', this._onPointerDown, true);
             this.element.removeEventListener('pointermove', this._onPointerMove, true);
             this.element.removeEventListener('pointerup', this._onPointerUp, true);
             this.element.removeEventListener('pointercancel', this._onPointerCancel, true);
-        } else {
-            this.element.removeEventListener('mousedown', this._onMouseDown, true);
-            this.element.removeEventListener('mousemove', this._onMouseMove, true);
-            this.element.removeEventListener('mouseup', this._onMouseUp, true);
         }
         this._nativeMouseListenersActive = false;
     }
@@ -213,20 +215,28 @@ export class HtmlElementContainer implements IHtmlElementContainer {
     }
 
     private readonly _onMouseDown = (e: MouseEvent): void => {
+        if (this._suppressCompatibilityMouseEvents) {
+            return;
+        }
         this._emitMouseEvent(this._mouseDownListeners, e);
     };
 
     private readonly _onMouseMove = (e: MouseEvent): void => {
+        if (this._suppressCompatibilityMouseEvents) {
+            return;
+        }
         this._emitMouseEvent(this._mouseMoveListeners, e);
     };
 
     private readonly _onMouseUp = (e: MouseEvent): void => {
+        if (this._suppressCompatibilityMouseEvents) {
+            return;
+        }
         this._emitMouseEvent(this._mouseUpListeners, e);
     };
 
     private readonly _onPointerDown = (e: PointerEvent): void => {
         if (e.pointerType !== 'touch') {
-            this._emitMouseEvent(this._mouseDownListeners, e);
             return;
         }
 
@@ -256,7 +266,6 @@ export class HtmlElementContainer implements IHtmlElementContainer {
 
     private readonly _onPointerMove = (e: PointerEvent): void => {
         if (e.pointerType !== 'touch') {
-            this._emitMouseEvent(this._mouseMoveListeners, e);
             return;
         }
 
@@ -283,7 +292,6 @@ export class HtmlElementContainer implements IHtmlElementContainer {
 
     private readonly _onPointerUp = (e: PointerEvent): void => {
         if (e.pointerType !== 'touch') {
-            this._emitMouseEvent(this._mouseUpListeners, e);
             return;
         }
 
@@ -296,9 +304,11 @@ export class HtmlElementContainer implements IHtmlElementContainer {
                 e.preventDefault();
             }
             this._emitMouseEvent(this._mouseUpListeners, e);
+            this._suppressCompatibilityMouseEventsAfterTouch();
         } else if (!this._touchGestureCancelled && this._pendingTouchDown) {
-            this._emitMouseEvent(this._mouseDownListeners, this._pendingTouchDown);
-            this._emitMouseEvent(this._mouseUpListeners, e);
+            this._emitMouseEvent(this._mouseDownListeners, this._pendingTouchDown, false);
+            this._emitMouseEvent(this._mouseUpListeners, e, false);
+            this._suppressCompatibilityMouseEventsAfterTouch();
         }
 
         this._resetTouchGesture(true);
@@ -311,6 +321,7 @@ export class HtmlElementContainer implements IHtmlElementContainer {
 
         if (this._touchSelectionActive) {
             this._emitMouseEvent(this._mouseUpListeners, e);
+            this._suppressCompatibilityMouseEventsAfterTouch();
         }
         this._resetTouchGesture(true);
     };
@@ -362,8 +373,25 @@ export class HtmlElementContainer implements IHtmlElementContainer {
         }
     }
 
-    private _emitMouseEvent(listeners: MouseEventListener[], e: MouseEvent): void {
-        const args = new BrowserMouseEventArgs(e);
+    private _suppressCompatibilityMouseEventsAfterTouch(): void {
+        this._clearCompatibilityMouseSuppression();
+        this._suppressCompatibilityMouseEvents = true;
+        this._compatibilityMouseSuppressionTimer = setTimeout(() => {
+            this._suppressCompatibilityMouseEvents = false;
+            this._compatibilityMouseSuppressionTimer = null;
+        }, HtmlElementContainer._compatibilityMouseSuppressionDelay);
+    }
+
+    private _clearCompatibilityMouseSuppression(): void {
+        if (this._compatibilityMouseSuppressionTimer !== null) {
+            clearTimeout(this._compatibilityMouseSuppressionTimer);
+            this._compatibilityMouseSuppressionTimer = null;
+        }
+        this._suppressCompatibilityMouseEvents = false;
+    }
+
+    private _emitMouseEvent(listeners: MouseEventListener[], e: MouseEvent, allowPreventDefault: boolean = true): void {
+        const args = new BrowserMouseEventArgs(e, allowPreventDefault);
         for (const listener of [...listeners]) {
             listener(args);
         }
