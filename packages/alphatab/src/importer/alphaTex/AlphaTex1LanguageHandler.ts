@@ -95,7 +95,7 @@ import type {
 import { Track } from '@coderline/alphatab/model/Track';
 import { TremoloPickingEffect, TremoloPickingStyle } from '@coderline/alphatab/model/TremoloPickingEffect';
 import { TripletFeel } from '@coderline/alphatab/model/TripletFeel';
-import { Tuning } from '@coderline/alphatab/model/Tuning';
+import { Tuning, TuningAccidentalMode } from '@coderline/alphatab/model/Tuning';
 import { VibratoType } from '@coderline/alphatab/model/VibratoType';
 import { WahPedal } from '@coderline/alphatab/model/WahPedal';
 import { TabRhythmMode } from '@coderline/alphatab/NotationSettings';
@@ -2998,11 +2998,19 @@ export class AlphaTex1LanguageHandler implements IAlphaTexLanguageImportHandler 
         staff: Staff,
         bar: Bar | undefined,
         voice: number,
-        isMultiVoice: boolean
+        isMultiVoice: boolean,
+        tuningAccidentalMode: TuningAccidentalMode
     ): AlphaTexMetaDataNode[] {
         const nodes: AlphaTexMetaDataNode[] = [];
 
-        AlphaTex1LanguageHandler._buildStructuralMetaDataNodes(bar, staff, nodes, isMultiVoice, voice);
+        AlphaTex1LanguageHandler._buildStructuralMetaDataNodes(
+            bar,
+            staff,
+            nodes,
+            isMultiVoice,
+            voice,
+            tuningAccidentalMode
+        );
         if (!bar) {
             return nodes;
         }
@@ -3203,7 +3211,11 @@ export class AlphaTex1LanguageHandler implements IAlphaTexLanguageImportHandler 
         }
     }
 
-    private static _buildStaffMetaDataNodes(nodes: AlphaTexMetaDataNode[], staff: Staff) {
+    private static _buildStaffMetaDataNodes(
+        nodes: AlphaTexMetaDataNode[],
+        staff: Staff,
+        tuningAccidentalMode: TuningAccidentalMode
+    ) {
         const firstStaffMetaIndex = nodes.length;
 
         if (staff.capo !== 0) {
@@ -3216,7 +3228,7 @@ export class AlphaTex1LanguageHandler implements IAlphaTexLanguageImportHandler 
                 'tuning',
                 Atnf.args(
                     staff.stringTuning.tunings.map(
-                        t => Atnf.ident(Tuning.getTextForTuning(t, true)) as IAlphaTexArgumentValue
+                        t => Atnf.ident(Tuning.getTextForTuning(t, true, tuningAccidentalMode)) as IAlphaTexArgumentValue
                     )
                 )
             );
@@ -3437,7 +3449,8 @@ export class AlphaTex1LanguageHandler implements IAlphaTexLanguageImportHandler 
         staff: Staff,
         nodes: AlphaTexMetaDataNode[],
         isMultiVoice: boolean,
-        voice: number
+        voice: number,
+        tuningAccidentalMode: TuningAccidentalMode
     ) {
         if (bar === undefined || bar.index === 0) {
             if (voice === 0) {
@@ -3445,7 +3458,7 @@ export class AlphaTex1LanguageHandler implements IAlphaTexLanguageImportHandler 
                     nodes.push(AlphaTex1LanguageHandler._buildNewTrackNode(staff.track));
                 }
                 nodes.push(AlphaTex1LanguageHandler._buildNewStaffNode(staff));
-                AlphaTex1LanguageHandler._buildStaffMetaDataNodes(nodes, staff);
+                AlphaTex1LanguageHandler._buildStaffMetaDataNodes(nodes, staff, tuningAccidentalMode);
             }
 
             if (isMultiVoice) {

@@ -5,6 +5,7 @@ import { ScoreLoader } from '@coderline/alphatab/importer/ScoreLoader';
 import { StaffPlacement, SystemDisplay } from '@coderline/alphatab/model/ElementDisplay';
 import { BarNumberDisplay } from '@coderline/alphatab/model/RenderStylesheet';
 import type { Score } from '@coderline/alphatab/model/Score';
+import { TuningAccidentalMode } from '@coderline/alphatab/model/Tuning';
 import { TabRhythmMode } from '@coderline/alphatab/NotationSettings';
 import { Settings } from '@coderline/alphatab/Settings';
 import { ComparisonHelpers } from 'test/model/ComparisonHelpers';
@@ -129,6 +130,17 @@ describe('AlphaTexExporterTest', () => {
         } else {
             await TestPlatform.deleteFile('test-data/exporter/notation-legend-formatted.atex.new');
         }
+    });
+
+    it('exports-tuning-accidental-mode', () => {
+        const score = ScoreLoader.loadAlphaTex('\\tuning E4 B3 G3 D3 A2 Gb2 . r.4');
+
+        expect(exportAlphaTex(score)).toContain('\\tuning (E4 B3 G3 D3 A2 Gb2)');
+
+        const settings = new Settings();
+        settings.display.tuningAccidentalMode = TuningAccidentalMode.Sharp;
+
+        expect(exportAlphaTex(score, settings)).toContain('\\tuning (E4 B3 G3 D3 A2 F#2)');
     });
 
     // Note: we just test all our importer and visual tests to cover all features
