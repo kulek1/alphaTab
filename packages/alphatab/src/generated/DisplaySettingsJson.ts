@@ -302,6 +302,17 @@ export interface DisplaySettingsJson {
      */
     tuningAccidentalMode?: TuningAccidentalMode | keyof typeof TuningAccidentalMode | Lowercase<keyof typeof TuningAccidentalMode>;
     /**
+     * Extra empty space reserved before the closing barline of bars whose content is shorter than their time signature.
+     * @since 1.9.0
+     * @category Display
+     * @defaultValue `0`
+     * @remarks
+     * Editors can use this space for affordances like adding a rest to an incomplete bar. The space is reserved
+     * for the whole master bar when any rendered staff is incomplete, so barlines stay aligned. It is fixed
+     * overhead and is not scaled when a system is justified. Anacrusis bars and multi-bar rests never receive it.
+     */
+    incompleteBarTrailingSpace?: number;
+    /**
      * The top padding applied to the first main notation staff (standard, tabs, numbered, slash).
      * @since 1.8.0
      * @category Display

@@ -46,6 +46,7 @@ export class DisplaySettingsSerializer {
         o.set("accoladebarpaddingright", obj.accoladeBarPaddingRight);
         o.set("inlinetuningpaddingright", obj.inlineTuningPaddingRight);
         o.set("tuningaccidentalmode", obj.tuningAccidentalMode as number);
+        o.set("incompletebartrailingspace", obj.incompleteBarTrailingSpace);
         o.set("firstnotationstaffpaddingtop", obj.firstNotationStaffPaddingTop);
         o.set("lastnotationstaffpaddingbottom", obj.lastNotationStaffPaddingBottom);
         o.set("notationstaffpaddingtop", obj.notationStaffPaddingTop);
@@ -124,6 +125,9 @@ export class DisplaySettingsSerializer {
                 return true;
             case "tuningaccidentalmode":
                 obj.tuningAccidentalMode = JsonHelper.parseEnum<TuningAccidentalMode>(v, TuningAccidentalMode)!;
+                return true;
+            case "incompletebartrailingspace":
+                obj.incompleteBarTrailingSpace = v! as number;
                 return true;
             case "firstnotationstaffpaddingtop":
                 obj.firstNotationStaffPaddingTop = v! as number;
