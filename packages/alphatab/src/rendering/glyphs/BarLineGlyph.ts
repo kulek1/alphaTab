@@ -357,11 +357,13 @@ export class BarLineGlyph extends LeftToRightLayoutingGlyphGroup {
             isExtended = true;
         }
 
+        // Line y positions already include this.y (see doLayout); only the group x is applied here.
+        const lineX = cx + this.x;
         for (const line of lines) {
             if (isExtended) {
-                (line as BarLineGlyphBase).paintExtended(cx, cy, canvas, actualLineHeight);
+                (line as BarLineGlyphBase).paintExtended(lineX, cy, canvas, actualLineHeight);
             } else {
-                (line as BarLineGlyphBase).paint(cx, cy, canvas);
+                (line as BarLineGlyphBase).paint(lineX, cy, canvas);
             }
         }
     }

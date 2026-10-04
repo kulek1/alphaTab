@@ -714,6 +714,11 @@ export abstract class LineBarRenderer extends BarRendererBase {
         super.createPostBeatGlyphs();
         const lastBar = this.lastBar;
 
+        const trailingSpace = this.settings.display.incompleteBarTrailingSpace;
+        if (trailingSpace > 0 && !this.additionalMultiRestBars && this._hasIncompleteRenderedBar()) {
+            this.addPostBeatGlyph(new SpacingGlyph(0, 0, trailingSpace));
+        }
+
         this.addPostBeatGlyph(new BarLineGlyph(true, this.bar.staff.track.score.stylesheet.extendBarLines));
 
         if (
@@ -723,6 +728,33 @@ export abstract class LineBarRenderer extends BarRendererBase {
         ) {
             this.addPostBeatGlyph(new RepeatCountGlyph(0, this.getLineHeight(-0.5), this.bar.masterBar.repeatCount));
         }
+    }
+
+    /**
+     * Whether any rendered staff of this master bar has content shorter than the bar duration.
+     * Checking the whole master bar keeps barlines aligned across staves.
+     */
+    private _hasIncompleteRenderedBar(): boolean {
+        const masterBar = this.bar.masterBar;
+        const expectedDuration = masterBar.calculateDuration();
+        const tracks = this.scoreRenderer.tracks ?? [this.bar.staff.track];
+        for (const track of tracks) {
+            for (const staff of track.staves) {
+                const bar = masterBar.index < staff.bars.length ? staff.bars[masterBar.index] : null;
+                if (!bar || bar.isEmpty) {
+                    continue;
+                }
+                let beatCount = 0;
+                for (const voice of bar.voices) {
+                    beatCount = Math.max(beatCount, voice.beats.length);
+                }
+                // Tuplet durations are truncated to whole ticks, losing less than one tick per beat.
+                if (expectedDuration - bar.calculateDuration() >= Math.max(1, beatCount)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public abstract get repeatsBarSubElement(): BarSubElement;
