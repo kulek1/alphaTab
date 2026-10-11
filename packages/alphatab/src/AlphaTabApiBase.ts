@@ -3685,8 +3685,8 @@ export class AlphaTabApiBase<TSettings> {
 
         this._currentBeat = null;
         this._cursorUpdateTick(this._previousTick, false, 1, true, true);
-        if (this._selectionStart) {
-            this.highlightPlaybackRange(this._selectionStart.beat, this._selectionEnd!.beat);
+        if (this._selectionStart && this._selectionEnd) {
+            this.highlightPlaybackRange(this._selectionStart.beat, this._selectionEnd.beat);
         }
 
         (this.postRenderFinished as EventEmitter).trigger();
